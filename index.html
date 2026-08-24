@@ -56,6 +56,21 @@
     background: rgba(255,60,60,0.35); border-radius: 12px;
     opacity: 0; pointer-events: none; transition: opacity 0.15s ease-out;
   }
+  #pauseBtn {
+    pointer-events: auto; cursor: pointer;
+    width: 34px; height: 34px; border-radius: 8px;
+    background: rgba(6, 16, 32, 0.55); border: 1px solid rgba(102,204,255,0.4);
+    color: #cff; font-size: 15px; display: flex; align-items: center; justify-content: center;
+    transition: background 0.12s ease; margin-left: 8px;
+  }
+  #pauseBtn:hover { background: rgba(20,45,80,0.8); }
+  #hudRight { display: flex; align-items: flex-start; }
+  #pauseOverlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: #cff; border-radius: 12px; background: rgba(2,8,20,0.75); backdrop-filter: blur(2px);
+    letter-spacing: 3px; font-size: 26px; text-shadow: 0 0 12px #3af;
+  }
   #overlay {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -106,8 +121,12 @@
   <div id="flash"></div>
   <div id="hud">
     <div id="scoreBox"><span class="label">Score</span><span class="value" id="score">0</span></div>
-    <div id="livesBox"></div>
+    <div id="hudRight">
+      <div id="livesBox"></div>
+      <div id="pauseBtn" title="Pause">&#10073;&#10073;</div>
+    </div>
   </div>
+  <div id="pauseOverlay" class="hidden">PAUSED</div>
   <div id="overlay">
     <div class="subtitle">Arcade Dogfight</div>
     <h1>SKY FIGHTER</h1>
@@ -128,6 +147,8 @@ const livesBox = document.getElementById('livesBox');
 const overlay = document.getElementById('overlay');
 const startBtn = document.getElementById('startBtn');
 const flashEl = document.getElementById('flash');
+const pauseBtn = document.getElementById('pauseBtn');
+const pauseOverlay = document.getElementById('pauseOverlay');
 
 const MAX_LIVES = 3;
 function renderLives() {
@@ -177,7 +198,25 @@ class Player {
   draw() {
     ctx.save();
     ctx.translate(this.x + this.w / 2, this.y + this.h / 2);
-    ctx.fillStyle = '#6cf';
+
+    // engine flame
+    const flicker = 6 + Math.random() * 6;
+    const flameGrad = ctx.createLinearGradient(0, 14, 0, 14 + flicker);
+    flameGrad.addColorStop(0, 'rgba(255,220,120,0.9)');
+    flameGrad.addColorStop(1, 'rgba(255,120,30,0)');
+    ctx.fillStyle = flameGrad;
+    ctx.beginPath();
+    ctx.moveTo(-5, 14);
+    ctx.lineTo(5, 14);
+    ctx.lineTo(0, 14 + flicker);
+    ctx.closePath();
+    ctx.fill();
+
+    const bodyGrad = ctx.createLinearGradient(-14, -20, 14, 18);
+    bodyGrad.addColorStop(0, '#a5e6ff');
+    bodyGrad.addColorStop(0.5, '#6cf');
+    bodyGrad.addColorStop(1, '#2c7fc2');
+    ctx.fillStyle = bodyGrad;
     ctx.beginPath();
     ctx.moveTo(0, -20);
     ctx.lineTo(14, 18);
@@ -185,8 +224,16 @@ class Player {
     ctx.lineTo(-14, 18);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
     ctx.fillStyle = '#39c';
     ctx.fillRect(-20, 2, 40, 6);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.ellipse(0, -8, 3, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 }
@@ -219,7 +266,11 @@ class Enemy {
   draw() {
     ctx.save();
     ctx.translate(this.x + this.w / 2, this.y + this.h / 2);
-    ctx.fillStyle = '#f55';
+    const bodyGrad = ctx.createLinearGradient(-12, -16, 12, 18);
+    bodyGrad.addColorStop(0, '#ffb3b3');
+    bodyGrad.addColorStop(0.5, '#f55');
+    bodyGrad.addColorStop(1, '#a11');
+    ctx.fillStyle = bodyGrad;
     ctx.beginPath();
     ctx.moveTo(0, 18);
     ctx.lineTo(12, -16);
@@ -227,8 +278,62 @@ class Enemy {
     ctx.lineTo(-12, -16);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.fillStyle = '#a33';
     ctx.fillRect(-16, -6, 32, 6);
+    ctx.restore();
+  }
+}
+
+class Explosion {
+  constructor(x, y, color) {
+    this.particles = Array.from({ length: 10 }, () => ({
+      x, y,
+      vx: (Math.random() - 0.5) * 6,
+      vy: (Math.random() - 0.5) * 6,
+      life: 20 + Math.random() * 10,
+      color
+    }));
+  }
+  update() {
+    this.particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
+    this.particles = this.particles.filter(p => p.life > 0);
+  }
+  draw() {
+    this.particles.forEach(p => {
+      ctx.globalAlpha = Math.max(p.life / 30, 0);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+    });
+    ctx.globalAlpha = 1;
+  }
+  get done() { return this.particles.length === 0; }
+}
+
+class Cloud {
+  constructor() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.speed = 0.3 + Math.random() * 0.6;
+    this.scale = 0.5 + Math.random() * 1.2;
+    this.alpha = 0.05 + Math.random() * 0.08;
+  }
+  update() {
+    this.y += this.speed;
+    if (this.y - 60 * this.scale > H) { this.y = -60 * this.scale; this.x = Math.random() * W; }
+  }
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.scale(this.scale, this.scale);
+    ctx.fillStyle = `rgba(255,255,255,${this.alpha})`;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 40, 18, 0, 0, Math.PI * 2);
+    ctx.ellipse(-25, 6, 26, 14, 0, 0, Math.PI * 2);
+    ctx.ellipse(25, 6, 26, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 }
@@ -250,21 +355,36 @@ class Star {
   }
 }
 
-let player, bullets, enemyBullets, enemies, stars, score, lives, spawnTimer, running, animId;
+let player, bullets, enemyBullets, enemies, stars, clouds, explosions, score, lives, spawnTimer, running, paused, animId;
 
 function init() {
   player = new Player();
   bullets = [];
   enemyBullets = [];
   enemies = [];
+  explosions = [];
   stars = Array.from({ length: 80 }, () => new Star());
+  clouds = Array.from({ length: 6 }, () => new Cloud());
   score = 0;
   lives = MAX_LIVES;
   spawnTimer = 0;
   running = true;
+  paused = false;
+  pauseOverlay.classList.add('hidden');
   scoreEl.textContent = score;
   renderLives();
 }
+
+function togglePause() {
+  if (!running) return;
+  paused = !paused;
+  pauseOverlay.classList.toggle('hidden', !paused);
+  if (!paused) animId = requestAnimationFrame(loop);
+}
+pauseBtn.addEventListener('click', togglePause);
+window.addEventListener('keydown', e => {
+  if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
+});
 
 function endGame(win) {
   running = false;
@@ -281,10 +401,11 @@ function endGame(win) {
 }
 
 function loop() {
-  if (!running) return;
+  if (!running || paused) return;
   ctx.clearRect(0, 0, W, H);
 
   stars.forEach(s => { s.update(); s.draw(); });
+  clouds.forEach(c => { c.update(); c.draw(); });
 
   player.update();
   player.draw();
@@ -304,12 +425,16 @@ function loop() {
   enemies.forEach(e => { e.update(); e.draw(); });
   enemies = enemies.filter(e => e.y < H + 50);
 
+  explosions.forEach(ex => { ex.update(); ex.draw(); });
+  explosions = explosions.filter(ex => !ex.done);
+
   // bullet vs enemy
   for (let ei = enemies.length - 1; ei >= 0; ei--) {
     const e = enemies[ei];
     for (let bi = bullets.length - 1; bi >= 0; bi--) {
       const b = bullets[bi];
       if (rectsCollide(e, b)) {
+        explosions.push(new Explosion(e.x + e.w / 2, e.y + e.h / 2, '#f80'));
         enemies.splice(ei, 1);
         bullets.splice(bi, 1);
         score += 10;
@@ -342,6 +467,7 @@ function hitPlayer() {
   lives--;
   renderLives();
   flashHit();
+  explosions.push(new Explosion(player.x + player.w / 2, player.y + player.h / 2, '#6cf'));
   if (lives <= 0) endGame(false);
 }
 
